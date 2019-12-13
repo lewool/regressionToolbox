@@ -48,8 +48,15 @@ moveWindow = [-2 -1 0 1 2];
 %% RETRIEVE SPIKE TRACE PER CELL
 
 numCompleteTrials = numel(block.events.endTrialTimes);
-
+allTrialConditions = initTrialConditions;
+moveLeftConditions = initTrialConditions('movementDir','cw');
+moveRightConditions = initTrialConditions('movementDir','ccw');
 prestimTimes = prestimTimes(1:numCompleteTrials,:);
+
+[~, rightStimIdx] = selectCondition(block, contrasts(contrasts > 0), eventTimes, allTrialConditions);
+[~, leftStimIdx] = selectCondition(block, contrasts(contrasts < 0), eventTimes, allTrialConditions);
+[~, rightMoveIdx] = selectCondition(block, contrasts, eventTimes, moveRightConditions);
+[~, leftMoveIdx] = selectCondition(block, contrasts, eventTimes, moveLeftConditions);
 
 for iPlane = 1:numPlanes
     
@@ -61,25 +68,43 @@ for iPlane = 1:numPlanes
         planeFrameTimes = planeFrameTimes(1:size(planeSpikes,2));
     end
     
-    stimTimes = interp1(planeFrameTimes, planeFrameTimes, stimTimes_DAQ, 'next');
+    rightStimTimes = interp1(planeFrameTimes, planeFrameTimes, stimTimes_DAQ(rightStimIdx), 'next');
+    leftStimTimes = interp1(planeFrameTimes, planeFrameTimes, stimTimes_DAQ(leftStimIdx), 'next');
     moveTimes = interp1(planeFrameTimes, planeFrameTimes, moveTimes_DAQ, 'next');
+    leftMoveTimes = interp1(planeFrameTimes, planeFrameTimes, moveTimes_DAQ(leftMoveIdx), 'next');
+    rightMoveTimes = interp1(planeFrameTimes, planeFrameTimes, moveTimes_DAQ(rightMoveIdx), 'next');
 
     % SPLIT INTO TYPES OF STIM/MOVES
-    [~, stimIdx, ~] = intersect(planeFrameTimes,stimTimes);
+    [~, leftStimTimeIdx, ~] = intersect(planeFrameTimes,leftStimTimes);
+    [~, rightStimTimeIdx, ~] = intersect(planeFrameTimes,rightStimTimes);
     [~, moveIdx, ~] = intersect(planeFrameTimes,moveTimes);
+    [~, leftMoveTimeIdx, ~] = intersect(planeFrameTimes,leftMoveTimes);
+    [~, rightMoveTimeIdx, ~] = intersect(planeFrameTimes,rightMoveTimes);
 end
  
-toeplitz_stim = zeros(size(planeSpikes,2),length(stimWindow));
+toeplitz_leftStim = zeros(size(planeSpikes,2),length(stimWindow));
+toeplitz_rightStim = zeros(size(planeSpikes,2),length(stimWindow));
 toeplitz_move = zeros(size(planeSpikes,2),length(moveWindow));
+toeplitz_moveDir = zeros(size(planeSpikes,2),length(moveWindow));
 
 for t = 1:length(stimWindow)
-    toeplitz_stim(stimIdx+stimWindow(t),t) = 1;
-    toeplitz_move(stimIdx+moveWindow(t),t) = 1;
+    toeplitz_leftStim(leftStimTimeIdx+stimWindow(t),t) = 1;
+    toeplitz_rightStim(rightStimTimeIdx+stimWindow(t),t) = 1;
+    toeplitz_move(moveIdx+moveWindow(t),t) = 1;
+    toeplitz_moveDir(leftMoveTimeIdx+moveWindow(t),t) = -1;
+    toeplitz_moveDir(rightMoveTimeIdx+moveWindow(t),t) = 1;
 end
      
-    
-    
-    
+weights = toeplitz\testCell; 
+figure;
+subplot(1,4,1);
+plot(stimWindow*.2, weights(1:5))
+subplot(1,4,2);
+plot(stimWindow*.2, weights(6:10))    
+subplot(1,4,3);
+plot(moveWindow*.2, weights(11:15))
+subplot(1,4,4);
+plot(moveWindow*.2, weights(16:20))
     
     
     
