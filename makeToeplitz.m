@@ -1,29 +1,6 @@
-function [alignedTraces, eventWindow] = getAlignedTraces(expInfo, allFcell, eventTimes, event, upsamplingRate, cellIdx, day)
+function [alignedTraces, eventWindow] = makeToeplitz(expInfo, allFcell, eventTimes)
 %Extract the trial-by-trial activity for ROIs in each imaging plane
 %and align to a particular trial event (stim on, movement on, etc.)
-%
-%'event' is a string that is taken from the 'events' field of the eventTimes 
-%structure generated in getEventTimes.m
-%
-%'alignedTraces' is a 1 x n struct of calcium, neuropil, and spike activity 
-%for each ROI, where n is the number of planes. Each cell in the struct has
-%dimension trial x time x ROI no. (ROI calcium/spikes) or trial x time (neuropil)
-%
-%A small amount of upsampling is done so all ROIs across planes have the
-%same timepoints (prestimTimes, periEventTimes)
-%
-% OPTIONAL: 'cellIdx' and 'day'
-%'cellIdx' is an indexing struct (generated via registers2p.m and 
-%daisyChainDays.m) that can be used to pull out only cells imaged across
-%all days of a multiday, registered experiment. 'day' is specified with a 
-%scalar that refers to a column of cellIdx{plane}. CAUTION: Use indexing 
-%that assumes only 'iscell' ROIs from Suite2P as we already excluded 
-%non-iscell ROI traces in 'loadExpTraces.m'
-%
-% 9 July 2018 Added cell indexing
-% 7 Dec 2018 Edited interpolation computation
-
-
 
 %% LOAD DATA FROM EXPINFO
 
@@ -42,25 +19,15 @@ planeInfo = getPlaneFrameTimes(Timeline, numPlanes);
 stimTimes_DAQ = eventTimes(strcmp({eventTimes.event},'stimulusOnTimes')).daqTime;
 moveTimes_DAQ = eventTimes(strcmp({eventTimes.event},'prestimulusQuiescenceEndTimes')).daqTime;
 
-stimWindow = [0 1 2 3 4];
-moveWindow = [-2 -1 0 1 2];
-
-%% RETRIEVE SPIKE TRACE PER CELL
-
-numCompleteTrials = numel(block.events.endTrialTimes);
-allTrialConditions = initTrialConditions;
-moveLeftConditions = initTrialConditions('movementDir','cw');
-moveRightConditions = initTrialConditions('movementDir','ccw');
-prestimTimes = prestimTimes(1:numCompleteTrials,:);
-
-[~, rightStimIdx] = selectCondition(block, contrasts(contrasts > 0), eventTimes, allTrialConditions);
-[~, leftStimIdx] = selectCondition(block, contrasts(contrasts < 0), eventTimes, allTrialConditions);
-[~, rightMoveIdx] = selectCondition(block, contrasts, eventTimes, moveRightConditions);
-[~, leftMoveIdx] = selectCondition(block, contrasts, eventTimes, moveLeftConditions);
+%% RETRIEVE TIME TRACE PER PLANE
+ planeSpikes = zscore(double(allFcell(iPlane).spikes{1,find(expSeries == expNum)})')';
+ 
+[~, rightStimIdx] = selectCondition(block, contrasts(contrasts > 0), eventTimes, initTrialConditions);
+[~, leftStimIdx] = selectCondition(block, contrasts(contrasts < 0), eventTimes, initTrialConditions);
+[~, rightMoveIdx] = selectCondition(block, contrasts, eventTimes, initTrialConditions('movementDir','ccw'));
+[~, leftMoveIdx] = selectCondition(block, contrasts, eventTimes, initTrialConditions('movementDir','cw'));
 
 for iPlane = 1:numPlanes
-    
-    planeSpikes = zscore(double(allFcell(iPlane).spikes{1,find(expSeries == expNum)})')';
 
     % retrieve the frame times for this plane's cells
     planeFrameTimes = planeInfo(iPlane).frameTimes;
@@ -81,7 +48,11 @@ for iPlane = 1:numPlanes
     [~, leftMoveTimeIdx, ~] = intersect(planeFrameTimes,leftMoveTimes);
     [~, rightMoveTimeIdx, ~] = intersect(planeFrameTimes,rightMoveTimes);
 end
- 
+
+% set the size of the time window (in frames) around stim and move events
+stimWindow = [0 1 2 3 4];
+moveWindow = [-2 -1 0 1 2];
+
 toeplitz_leftStim = zeros(size(planeSpikes,2),length(stimWindow));
 toeplitz_rightStim = zeros(size(planeSpikes,2),length(stimWindow));
 toeplitz_move = zeros(size(planeSpikes,2),length(moveWindow));
@@ -95,16 +66,30 @@ for t = 1:length(stimWindow)
     toeplitz_moveDir(rightMoveTimeIdx+moveWindow(t),t) = 1;
 end
      
-weights = toeplitz\testCell; 
+[thetas] = findThetas(toeplitz, testCell, 1, .5);
 figure;
 subplot(1,4,1);
-plot(stimWindow*.2, weights(1:5))
+plot(stimWindow*.2, thetas(1)+thetas(2:6))
+title('stimulus left');
+ylabel('weights')
+xlabel('from onset (s)')
+box off
 subplot(1,4,2);
-plot(stimWindow*.2, weights(6:10))    
+plot(stimWindow*.2, thetas(1)+thetas(7:11))    
+title('stimulus right');
+xlabel('from onset (s)')
+box off
 subplot(1,4,3);
-plot(moveWindow*.2, weights(11:15))
+plot(moveWindow*.2, thetas(1)+thetas(12:16))
+title('movement');
+xlabel('from onset (s)')
+box off
 subplot(1,4,4);
-plot(moveWindow*.2, weights(16:20))
+plot(moveWindow*.2, thetas(1)+thetas(17:21))
+title('movement direction');
+xlabel('from onset (s)')
+box off
+
     
     
     

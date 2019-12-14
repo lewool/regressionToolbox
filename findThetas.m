@@ -1,6 +1,6 @@
 function [thetas] = findThetas(X, y, intFlag, lambda, gpuFlag, noReg)
 % This function finds a set of thetas such that X * thetas = y. 
-% It uses Tikhonov regularization/ridge regression to punish overfitting. 
+% It uses ridge regression to punish overfitting. 
 % This is written by LEW but borrowed heavily from script by Sam Failor.
 
 % X: n x m matrix where n is the number of observations and m is the number 
