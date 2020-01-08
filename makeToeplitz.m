@@ -1,4 +1,4 @@
-function [alignedTraces, eventWindow] = makeToeplitz(expInfo, allFcell, eventTimes)
+function toeplitzMatrix = makeToeplitz(expInfo, allFcell, eventTimes, predictors, windows)
 %Extract the trial-by-trial activity for ROIs in each imaging plane
 %and align to a particular trial event (stim on, movement on, etc.)
 
@@ -16,18 +16,13 @@ numPlanes = expInfo.numPlanes;
 %% GET FRAME TIMES
  
 planeInfo = getPlaneFrameTimes(Timeline, numPlanes);
-stimTimes_DAQ = eventTimes(strcmp({eventTimes.event},'stimulusOnTimes')).daqTime;
-moveTimes_DAQ = eventTimes(strcmp({eventTimes.event},'prestimulusQuiescenceEndTimes')).daqTime;
 
 %% RETRIEVE TIME TRACE PER PLANE
- planeSpikes = zscore(double(allFcell(iPlane).spikes{1,find(expSeries == expNum)})')';
+featureList = fieldnames(predictors);
  
-[~, rightStimIdx] = selectCondition(block, contrasts(contrasts > 0), eventTimes, initTrialConditions);
-[~, leftStimIdx] = selectCondition(block, contrasts(contrasts < 0), eventTimes, initTrialConditions);
-[~, rightMoveIdx] = selectCondition(block, contrasts, eventTimes, initTrialConditions('movementDir','ccw'));
-[~, leftMoveIdx] = selectCondition(block, contrasts, eventTimes, initTrialConditions('movementDir','cw'));
-
-for iPlane = 1:numPlanes
+for iPlane = 2:numPlanes
+    
+    planeSpikes = zscore(double(allFcell(iPlane).spikes{1,find(expSeries == expNum)})')';
 
     % retrieve the frame times for this plane's cells
     planeFrameTimes = planeInfo(iPlane).frameTimes;
@@ -35,62 +30,33 @@ for iPlane = 1:numPlanes
         planeFrameTimes = planeFrameTimes(1:size(planeSpikes,2));
     end
     
-    rightStimTimes = interp1(planeFrameTimes, planeFrameTimes, stimTimes_DAQ(rightStimIdx), 'next');
-    leftStimTimes = interp1(planeFrameTimes, planeFrameTimes, stimTimes_DAQ(leftStimIdx), 'next');
-    moveTimes = interp1(planeFrameTimes, planeFrameTimes, moveTimes_DAQ, 'next');
-    leftMoveTimes = interp1(planeFrameTimes, planeFrameTimes, moveTimes_DAQ(leftMoveIdx), 'next');
-    rightMoveTimes = interp1(planeFrameTimes, planeFrameTimes, moveTimes_DAQ(rightMoveIdx), 'next');
-
-    % SPLIT INTO TYPES OF STIM/MOVES
-    [~, leftStimTimeIdx, ~] = intersect(planeFrameTimes,leftStimTimes);
-    [~, rightStimTimeIdx, ~] = intersect(planeFrameTimes,rightStimTimes);
-    [~, moveIdx, ~] = intersect(planeFrameTimes,moveTimes);
-    [~, leftMoveTimeIdx, ~] = intersect(planeFrameTimes,leftMoveTimes);
-    [~, rightMoveTimeIdx, ~] = intersect(planeFrameTimes,rightMoveTimes);
+    for f = 1:length(featureList)
+        if contains(featureList{f},'stimulus')
+            wd = windows.stimulus;
+        elseif contains(featureList{f},'movement')
+            wd = windows.movement;
+        elseif contains(featureList{f},'rewardSide')
+            wd = windows.rewardSide;
+        elseif contains(featureList{f},'outcome')
+            wd = windows.outcome;
+        end
+        
+        %interpolate predictor times to planeFrameTimes
+        predTimes = interp1(planeFrameTimes, planeFrameTimes, predictors.(featureList{f}).times, 'nearest');
+        %index which elements of planeFrameTimes correspond to
+        %predictor times
+        [ptimes , planeIdx] = intersect(planeFrameTimes,predTimes);
+        % in theory this should be the same as above but sometimes there
+        % are NaNs or duplicate values in predTimes which are
+        % dropped...this tracks which ones we kept 
+        [~, predIdx] = intersect(predTimes,ptimes);
+        tplz{1,f} = zeros(size(planeFrameTimes,2),length(wd));
+        for w = 1:length(wd)
+            tplz{1,f}(planeIdx+wd(w),w) = predictors.(featureList{f}).values(predIdx);
+            tplz{2,f} = wd;
+        end
+    end
+    
+    toeplitzMatrix{iPlane-1} = cat(2,tplz{1,1:length(featureList)});
+    
 end
-
-% set the size of the time window (in frames) around stim and move events
-stimWindow = [0 1 2 3 4];
-moveWindow = [-2 -1 0 1 2];
-
-toeplitz_leftStim = zeros(size(planeSpikes,2),length(stimWindow));
-toeplitz_rightStim = zeros(size(planeSpikes,2),length(stimWindow));
-toeplitz_move = zeros(size(planeSpikes,2),length(moveWindow));
-toeplitz_moveDir = zeros(size(planeSpikes,2),length(moveWindow));
-
-for t = 1:length(stimWindow)
-    toeplitz_leftStim(leftStimTimeIdx+stimWindow(t),t) = 1;
-    toeplitz_rightStim(rightStimTimeIdx+stimWindow(t),t) = 1;
-    toeplitz_move(moveIdx+moveWindow(t),t) = 1;
-    toeplitz_moveDir(leftMoveTimeIdx+moveWindow(t),t) = -1;
-    toeplitz_moveDir(rightMoveTimeIdx+moveWindow(t),t) = 1;
-end
-     
-[thetas] = findThetas(toeplitz, testCell, 1, .5);
-figure;
-subplot(1,4,1);
-plot(stimWindow*.2, thetas(1)+thetas(2:6))
-title('stimulus left');
-ylabel('weights')
-xlabel('from onset (s)')
-box off
-subplot(1,4,2);
-plot(stimWindow*.2, thetas(1)+thetas(7:11))    
-title('stimulus right');
-xlabel('from onset (s)')
-box off
-subplot(1,4,3);
-plot(moveWindow*.2, thetas(1)+thetas(12:16))
-title('movement');
-xlabel('from onset (s)')
-box off
-subplot(1,4,4);
-plot(moveWindow*.2, thetas(1)+thetas(17:21))
-title('movement direction');
-xlabel('from onset (s)')
-box off
-
-    
-    
-    
-    
