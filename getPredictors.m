@@ -1,4 +1,4 @@
-function [predictors, windows] = getPredictors(expInfo, eventTimes, featureList, windowLength, patience)
+function [predictors, windows] = getPredictors(expInfo, eventTimes, featureList, Fs, patience)
 
 block = expInfo.block;
 
@@ -9,9 +9,10 @@ structNames = fieldnames(predictors);
 contrasts = unique(block.events.contrastValues);
 
 % where to start kernel window
-stimStart = 0;
-moveStart = -2;
-rewardStart = -2;
+windowLength = 1/Fs;
+stimStart = 0 * 1/Fs;
+moveStart = -0.4 * 1/Fs;
+rewardStart = -0.4 * 1/Fs;
 
 
 % set up different trial conditions

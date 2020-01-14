@@ -1,21 +1,57 @@
 % cellResps is an array of size nTimepoints x nCells
+% predictors = structure of different task events and their times/values
 % predMats: cell array containing predictor matrices (each size nTimepoints x nFeatures)
+%% load experiment details
+
+% close all;
+% clear all;
+
+expInfo = initExpInfo({{'LEW008'}},{{'2019-02-07',1,[1]}});
+
+%% load data
+expInfo = data.loadExpData(expInfo);
+
+%% get event timings and wheel trajectories
+
+[eventTimes, wheelTrajectories] = getEventTimes(expInfo, {'stimulusOnTimes' 'interactiveOnTimes' 'stimulusOffTimes'});
+
+ %% load traces
+[allFcell, expInfo] = loadCellData(expInfo);
+
+%% collect all cells into 1 array
+
+Fs = 0.1;
+[cellResps, respTimes] = interpCellTimes(expInfo, allFcell, Fs);
+
+% z-score
+cellResps = zscore(cellResps);
+
+%% get relevant predictors and make predMat
+
+[predictors, windows] = getPredictors(expInfo, eventTimes, {'stimulus' 'movement' 'outcome'}, Fs, 'late');
+toeplitzMatrix = makeToeplitz(respTimes, predictors, windows);
+
+%%
+
+predMats{1} = toeplitzMatrix;
+
 intFlag = 1;
 
 % Lambda values to test
 lambdas = [10^-6 + 1.848.^(0:35) 1.848.^(54)];
 
-exptRF.VERR = nan(size(cellResps,2), length(predMats));
-exptRF.RMSERR = exptRF.VERR;
+finalVE = nan(size(cellResps,2), length(predMats));
+finalRMSE = finalVE;
 
-exptRF.kFinalRR = cell(length(predMats),1);
+finalWeights = cell(length(predMats),1);
 
 % For memory limitations, split cells into blocks for multivariate 
 % fitting - only does this when fitting a large number of cells
 nBlocks = 2;
 blockInd = randi(nBlocks,size(cellResps,2),1);
+%%
 
-% for each arbitrary block of cell responses, ....
+% for each arbitrary block of cell responses, ...
 for b = 1:nBlocks
     
     %report status
@@ -73,35 +109,61 @@ for b = 1:nBlocks
             allRMSE(:,l) = rmse(cellResps(:,cellInd),predResp(:,:,l));
             
         end
-                
+        
+        %if more than one lambda, find the optimal one for each cell  
         if length(lambdas) > 1
             
-            % Find each cells optimal lambda and fit model on all data
-            [bestRMSE(cellInd,m),lambdaInd(:,m)] = min(allRMSE,[],2); % Find lambda with minimum error for each cell
+            
+            % Find the lambda with minimum RMSE for each cell
+            [finalRMSE(cellInd,m),lambdaInd(:,m)] = min(allRMSE,[],2);
+            
+            %Find the VE associated with that lambda/minRMSE
             indVE = sub2ind(size(allVE), (1:size(allVE,1))', lambdaInd(:,m));
-            varianceExplained(cellInd,m) = allVE(indVE); % Get VE for that lambda and model
+            finalVE(cellInd,m) = allVE(indVE);
             
             for c = 1:length(cellInd)
                 
+                %report status
                 disp(['Final fit for cell ', num2str(cellInd(c)), ', model ', num2str(m), ', block ', num2str(b)])
                 
-                exptRF.kFinalRR{m}(:,cellInd(c)) = rReg(predMats{m}, cellResps(:,cellInd(c)), intFlag, lambdas(lambdaInd(c,m)), true);
+                %fit final weights based on the chosen lambda
+                finalWeights{m}(:,cellInd(c)) = findThetas(predMats{m}, cellResps(:,cellInd(c)), intFlag, lambdas(lambdaInd(c,m)), true);
                 
             end
-            
+        
+        % if only one lambda, carry on without determining min(RMSE)
         else
             
-            allVE = squeeze(mean(allVE,3));
-            exptRF.VERR(cellInd,m) = allVE;
-            allRMSE = squeeze(mean(allRMSE,3));
-            exptRF.RMSERR(cellInd,m) = allRMSE;
+            %there's already only one value per cell, copy it down
+            finalVE(cellInd,m) = allVE;
+            finalRMSE(cellInd,m) = allRMSE;
             
+            %report status
             disp(['Final fit model ', num2str(m), ', block ', num2str(b)])
-
-            exptRF.kFinalRR{m}(:,cellInd) = rReg(predMats{m}, cellResps(:,cellInd), intFlag, lambdas(1), true);
+            
+            %fit final weights based on the chosen lambda
+            finalWeights{m}(:,cellInd) = findThetas(predMats{m}, cellResps(:,cellInd), intFlag, lambdas(1), true);
             
         end
         
     end
     
+end
+
+%%
+
+featureList = fieldnames(predictors);
+ww = intFlag + 1;
+for f = 1:length(featureList)
+    if contains(featureList{f},'stimulus')
+        wd = length(windows.stimulus);
+    elseif contains(featureList{f},'movement')
+        wd = length(windows.movement);
+    elseif contains(featureList{f},'rewardSide')
+        wd = length(windows.rewardSide);
+    elseif contains(featureList{f},'outcome')
+        wd = length(windows.outcome);
+    end
+    fitKernels{f} = finalWeights{m}(ww:ww+wd-1,:);
+    ww = ww + wd;
 end

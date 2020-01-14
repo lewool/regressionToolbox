@@ -15,7 +15,7 @@ if size(thetas,1) > size(X,2)
     if size(thetas,1) - size(X,2) == 1 && round(mean(X(:,1))) ~= 1
             % ...add one
             X = addInt(X);
-            disp('X seems to be missing an intercept; adding it now');
+            % disp('X seems to be missing an intercept; adding it now');
     else
         % otherwise throw an error
         error('X and thetas are different sizes; cannot continue')

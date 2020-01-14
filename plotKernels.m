@@ -1,12 +1,14 @@
-function plotKernels(toeplitzMatrix, predictors, windows)   
+function plotKernels(fitKernels, predictors, windows)   
 
-%% GET PREDICTOR MATRIX
 
-[predictors, windows] = getPredictors(expInfo, eventTimes, {'stimulus' 'movement' 'outcome'}, 5, 'all');
+
 
 %%
-k = 19;
-max_k = size(planeSpikes,1);
+Fs = 0.1;
+featureList = fieldnames(predictors);
+
+k = 139;
+max_k = size(fitKernels{1},2);
 
 nsubs = 0;
 events = {'stimulus' 'movement' 'outcome'};
@@ -23,45 +25,45 @@ for s = 1:nsubs
     cla;
 end
 
-testCell = planeSpikes(k,:)';
-[thetas] = findThetas(toeplitzMatrix, testCell, 1, .5);
+thetas = [];
+for f = 1:length(fitKernels)
+    thetas = [thetas; fitKernels{f}(:,k)];
+end
+maxY = max([max(thetas) .5]); 
+minY = min(thetas);
 
-maxY = max([max(thetas(2:end))+thetas(1)]); %max(thetas(2:end))+thetas(1);
-minY = min([min(thetas(2:end))+thetas(1)]); %min(thetas(2:end))+thetas(1);
-% nsubs = length(featureList);
 
 
 
-thlen = [];
 for p = 1:length(featureList)
     if mod(p,2) > 0
         c = 1;
     else
         c = 2;
     end
-    
-    thlen(p) = size(tplz{1,p},2);
-    
+        
     if contains(featureList{p},'stimulus') > 0
         subplot(1,nsubs,find(strcmp(events,'stimulus')))
         title('stimulus')
         colors = [0 .4 1; 1 0 0];
+        xwin = windows.stimulus*Fs;
     elseif contains(featureList{p},'movement') > 0
         subplot(1,nsubs,find(strcmp(events,'movement')))
         title('movement')
         colors = [0 .4 1; 1 0 0];
+        xwin = windows.movement*Fs;
     elseif contains(featureList{p},'outcome') > 0
         subplot(1,nsubs,find(strcmp(events,'outcome')))
         title('outcome')
         colors = [0 .5 0; 1 0 0];
+        xwin = windows.outcome*Fs;
     end
     onsetLine = line([0 0],[minY maxY]);
     set(onsetLine,'LineStyle', '--', 'LineWidth',1,'Marker','none','Color',[.5 .5 .5]);
-    kPlot = plot(tplz{2,p}*.2, thetas(1)+ thetas(sum(thlen)-thlen(p)+2:sum(thlen)+1)');
-    
-        set(kPlot,'LineStyle', '-', 'LineWidth',1,'Marker','none','Color',colors(c,:));
+    kPlot = plot(xwin, fitKernels{p}(:,k));    
+    set(kPlot,'LineStyle', '-', 'LineWidth',1,'Marker','none','Color',colors(c,:));
     hold on;
-	xlim([min(tplz{2,p}*.2)-.1 max(tplz{2,p}*.2)+.1])
+	xlim([min(xwin)-.1 max(xwin)+.1])
     ylim([minY maxY]);
     ylabel('weights')
     xlabel('from onset (s)')
